@@ -2,4 +2,4 @@ fastapi
 uvicorn
 requests
 beautifulsoup4
-cloudscraper
+playwright
