@@ -61,19 +61,46 @@ def debug_html(date_str: str = Query(None, alias="date")):
     """
     Diagnostic — shows the REAL raw HTML structure of Oddsbook's day
     page, so the parser in oddsbook_odds.py can be fixed against
-    what's actually there instead of a guess.
+    what's actually there instead of a guess. Does its own fetch
+    (not via the silently-failing helper) so real errors/status
+    codes/response bodies are visible instead of swallowed.
     """
+    import requests as _requests
+
     target = (
         datetime.strptime(date_str, "%Y-%m-%d").date()
         if date_str else date.today()
     )
     date_s = target.strftime("%Y-%m-%d")
+    url = f"https://oddsbook.com/football/?date={date_s}"
 
-    html = _fetch_day_page(date_s)
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
 
-    if not html:
-        return {"error": "fetch failed — no HTML returned"}
+    try:
+        resp = _requests.get(url, headers=headers, timeout=25)
+    except Exception as e:
+        return {"fetch_exception": str(e), "url": url}
 
+    result = {
+        "url": url,
+        "status_code": resp.status_code,
+        "response_length": len(resp.text),
+        "response_headers": dict(resp.headers),
+        "first_1000_chars": resp.text[:1000],
+    }
+
+    if resp.status_code != 200:
+        return result
+
+    html = resp.text
     soup = BeautifulSoup(html, "html.parser")
 
     all_links = soup.find_all("a", href=True)
@@ -84,30 +111,26 @@ def debug_html(date_str: str = Query(None, alias="date")):
     match_links = [a["href"] for a in all_links if match_link_re.match(a["href"])]
     league_links = [a["href"] for a in all_links if league_link_re.match(a["href"])]
 
-    # Grab the raw HTML around the FIRST match link found, so we can
-    # see the actual tag structure (classes, nesting) surrounding a
-    # single fixture row.
     sample_html = ""
     if match_links:
         first_link_tag = soup.find("a", href=match_links[0])
         if first_link_tag:
-            # Walk up a couple of parent levels to capture the whole row
             container = first_link_tag
             for _ in range(3):
                 if container.parent:
                     container = container.parent
             sample_html = str(container)[:3000]
 
-    return {
-        "date": date_s,
-        "total_html_length": len(html),
+    result.update({
         "total_a_tags": len(all_links),
         "match_links_found": len(match_links),
         "league_links_found": len(league_links),
         "sample_match_links": match_links[:5],
         "sample_league_links": league_links[:10],
         "sample_row_html": sample_html,
-    }
+    })
+
+    return result
 
 
 @app.get("/test-slugs")
