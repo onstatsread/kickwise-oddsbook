@@ -28,6 +28,12 @@ import requests
 from datetime import date
 from bs4 import BeautifulSoup
 
+try:
+    import cloudscraper
+    _HAS_CLOUDSCRAPER = True
+except ImportError:
+    _HAS_CLOUDSCRAPER = False
+
 
 ODDSBOOK_BASE = "https://oddsbook.com"
 
@@ -46,7 +52,20 @@ ODDSBOOK_HEADERS = {
     "Connection": "keep-alive",
 }
 
-SESSION = requests.Session()
+# Oddsbook serves a Cloudflare JS challenge ("Just a moment...", 403,
+# Cf-Mitigated: challenge) to plain requests.Session() calls, confirmed
+# via /debug-html on 2026-09-04. cloudscraper attempts to solve/bypass
+# that challenge automatically. If cloudscraper ALSO gets challenged
+# (check /debug-html again after this change), the next step up is a
+# real headless browser (Playwright) — cloudscraper doesn't handle
+# every Cloudflare challenge type.
+if _HAS_CLOUDSCRAPER:
+    SESSION = cloudscraper.create_scraper(
+        browser={"browser": "chrome", "platform": "windows", "mobile": False}
+    )
+else:
+    SESSION = requests.Session()
+
 SESSION.headers.update(ODDSBOOK_HEADERS)
 
 
