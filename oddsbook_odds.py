@@ -24,49 +24,18 @@ best-effort placeholder until that's verified.
 
 import re
 import time
-import requests
 from datetime import date
 from bs4 import BeautifulSoup
-
-try:
-    import cloudscraper
-    _HAS_CLOUDSCRAPER = True
-except ImportError:
-    _HAS_CLOUDSCRAPER = False
+from playwright.sync_api import sync_playwright
 
 
 ODDSBOOK_BASE = "https://oddsbook.com"
 
-ODDSBOOK_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": (
-        "text/html,application/xhtml+xml,application/xml;"
-        "q=0.9,image/webp,*/*;q=0.8"
-    ),
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate",
-    "Connection": "keep-alive",
-}
-
-# Oddsbook serves a Cloudflare JS challenge ("Just a moment...", 403,
-# Cf-Mitigated: challenge) to plain requests.Session() calls, confirmed
-# via /debug-html on 2026-09-04. cloudscraper attempts to solve/bypass
-# that challenge automatically. If cloudscraper ALSO gets challenged
-# (check /debug-html again after this change), the next step up is a
-# real headless browser (Playwright) — cloudscraper doesn't handle
-# every Cloudflare challenge type.
-if _HAS_CLOUDSCRAPER:
-    SESSION = cloudscraper.create_scraper(
-        browser={"browser": "chrome", "platform": "windows", "mobile": False}
-    )
-else:
-    SESSION = requests.Session()
-
-SESSION.headers.update(ODDSBOOK_HEADERS)
+_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
 
 
 # ------------------------------------------------------------
@@ -135,6 +104,19 @@ def _add_implied_pct(odds_dict, *keys):
 def _fetch_day_page(date_str):
     """
     date_str: 'YYYY-MM-DD'. Returns raw HTML text, or None on failure.
+
+    Uses a real headless browser (Playwright) because Oddsbook is
+    behind a Cloudflare Turnstile-style JS challenge — confirmed via
+    /debug-html on 2026-09-04 that both plain requests AND cloudscraper
+    get served a "Just a moment..." 403 challenge page instead of real
+    content. Playwright actually executes the page's JS, so Cloudflare
+    sees a real browser and lets the request through (same reason the
+    earlier design-time checks via the fetch tool worked fine, while
+    Render's plain HTTP calls didn't).
+
+    This is slower and heavier than a plain HTTP request — expect
+    several seconds per call, not milliseconds. Result caching (5 min
+    TTL below) matters more here than it did for AnnaBet.
     """
     cache_key = date_str
     cached = _DAY_CACHE.get(cache_key)
@@ -144,11 +126,35 @@ def _fetch_day_page(date_str):
     url = f"{ODDSBOOK_BASE}/football/?date={date_str}"
 
     try:
-        resp = SESSION.get(url, timeout=25)
-        resp.raise_for_status()
-        html = resp.text
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage"],
+            )
+            context = browser.new_context(user_agent=_USER_AGENT)
+            page = context.new_page()
+
+            page.goto(url, timeout=45000, wait_until="domcontentloaded")
+
+            # Cloudflare's challenge takes a few seconds to resolve
+            # client-side before redirecting/rendering real content.
+            # Wait for the challenge title to disappear rather than a
+            # fixed sleep, with a fixed sleep as a fallback ceiling.
+            try:
+                page.wait_for_function(
+                    "document.title !== 'Just a moment...'",
+                    timeout=20000,
+                )
+            except Exception:
+                pass
+
+            page.wait_for_timeout(2000)  # let post-challenge JS settle
+
+            html = page.content()
+            browser.close()
+
     except Exception as exc:
-        print(f"Oddsbook day-page fetch failed: {url} -> {exc}")
+        print(f"Oddsbook Playwright fetch failed: {url} -> {exc}")
         return None
 
     _DAY_CACHE[cache_key] = (time.time(), html)
