@@ -1,25 +1,47 @@
 """
 Oddsbook fixtures + market-odds scraper.
 
-Equivalent of annabet_odds.py, but for Oddsbook. Returns fixtures
-for a given day (all leagues in one page load, unlike AnnaBet which
-needed a separate /upcoming/ scan) plus per-match 1X2 odds already
-embedded in that same page.
+Equivalent of annabet_odds.py, but for Oddsbook.
 
-CONFIRMED WORKING (verified via direct fetch during design, Aug/Sep
-2026): https://oddsbook.com/football/?date=YYYY-MM-DD returns every
-match that day, grouped by league, with kickoff time, live/FT/PST
-status, and per-bookmaker 1X2 odds (e.g. "16.50 Betwinner" = Home
-odds 6.50 from Betwinner).
+CONFIRMED WORKING (verified against real HTML via Playwright on
+Render, 2026-09-04): https://oddsbook.com/football/?date=YYYY-MM-DD
+returns every match that day, grouped by league, as clean data-*
+attributes — no fragile text-scraping needed. Structure:
 
-NOT YET CONFIRMED: Over/Under 2.5 odds. The day-list page only showed
-1X2 (Win/Draw/Win) prices in testing — O/U markets may only exist on
-individual match-detail pages (the /football/{country}/{league}/
-{slug}/{id}/ URLs each fixture links to), similar to how AnnaBet's
-O/U 2.5 lives on the H2H page rather than the /upcoming/ list. This
-needs to be confirmed by opening one live match page on Render and
-checking for an O/U 2.5 section — get_oddsbook_ou25() below is a
-best-effort placeholder until that's verified.
+    <section class="... game-list ..." data-country-slug="england"
+              data-league="39" data-league-slug="premier-league">
+      ...
+      <article class="... game-item ..." data-game-item
+                data-fixture-id="1557393" data-home-name="Ipswich"
+                data-away-name="Liverpool" data-home-id="57"
+                data-away-id="40" data-kickoff="2026-09-04T19:00:00.000Z"
+                data-status="scheduled" data-league-id="39">
+        ...
+        <div class="fx-score ...">
+          <em class="fx-sc-ns">-</em><em class="fx-sc-ns">-</em>
+        </div>
+        ...
+        <div aria-label="1X2" class="gi-odds ...">
+          <button data-market="1x2" data-outcome="home" data-odd="6.25" .../>
+          <button data-market="1x2" data-outcome="draw" data-odd="5.13" .../>
+          <button data-market="1x2" data-outcome="away" data-odd="1.57" .../>
+        </div>
+      </article>
+    </section>
+
+Note the "-ns" score class = "not started" — a scheduled match with
+no score yet. Finished-match score markup hasn't been directly
+confirmed (no live/FT match was in the sampled HTML), so
+_extract_score() below falls back gracefully to None/None rather
+than guessing a different class name — flag this if a finished
+match's score comes back empty and I'll add the right selector.
+
+NOT YET CONFIRMED: Over/Under 2.5 odds — the day-list page only
+showed a 1X2 odds block in the sampled match. O/U 2.5 may only exist
+on the individual match-detail page (the data-canonical-url each
+article carries), similar to how AnnaBet's O/U 2.5 lives on a
+separate H2H page. get_oddsbook_ou25() is a placeholder until that's
+confirmed — call it with a match's detail URL once verified.
 """
 
 import re
@@ -51,33 +73,26 @@ DAY_CACHE_TTL = 300  # 5 minutes — odds move, same TTL as AnnaBet's
 # Helpers
 # ------------------------------------------------------------
 
-FLOAT_RE = re.compile(r"^\d+(?:\.\d+)?$")
+def _norm_team(name):
+    return " ".join(str(name or "").lower().split()).strip()
 
 
 def _float(value):
     if value is None:
         return None
-    value = str(value).strip()
-    if not value or not FLOAT_RE.match(value):
-        return None
     try:
         f = float(value)
-    except ValueError:
+    except (TypeError, ValueError):
         return None
-    if f <= 1.0 or f > 100:
+    if f <= 1.0 or f > 1000:
         return None
     return f
 
 
-def _norm_team(name):
-    return " ".join(str(name).lower().split()).strip()
-
-
 def _add_implied_pct(odds_dict, *keys):
-    """Same normalization as annabet's version in app.py — adds
-    *_pct fields (overround removed) so daily_predictions.py's
-    existing format_match_html()/meets_blog2_standard() code works
-    unchanged against this fetcher's output."""
+    """Same normalization AnnaBet's app.py uses — adds *_pct fields
+    (bookmaker overround removed) so daily_predictions.py's existing
+    format_match_html()/meets_blog2_standard() code works unchanged."""
     if not odds_dict:
         return odds_dict
 
@@ -98,25 +113,22 @@ def _add_implied_pct(odds_dict, *keys):
 
 
 # ------------------------------------------------------------
-# Fetch a full day's fixtures (all leagues at once)
+# Fetch a full day's fixtures (all leagues at once) via Playwright
 # ------------------------------------------------------------
 
 def _fetch_day_page(date_str):
     """
     date_str: 'YYYY-MM-DD'. Returns raw HTML text, or None on failure.
 
-    Uses a real headless browser (Playwright) because Oddsbook is
-    behind a Cloudflare Turnstile-style JS challenge — confirmed via
-    /debug-html on 2026-09-04 that both plain requests AND cloudscraper
-    get served a "Just a moment..." 403 challenge page instead of real
-    content. Playwright actually executes the page's JS, so Cloudflare
-    sees a real browser and lets the request through (same reason the
-    earlier design-time checks via the fetch tool worked fine, while
-    Render's plain HTTP calls didn't).
+    Uses a real headless browser (Playwright) because Oddsbook sits
+    behind a Cloudflare Turnstile-style JS challenge — confirmed on
+    2026-09-04 that plain requests AND cloudscraper both get served a
+    "Just a moment..." 403 page. Playwright executes the page's JS so
+    Cloudflare treats it as a real browser.
 
-    This is slower and heavier than a plain HTTP request — expect
-    several seconds per call, not milliseconds. Result caching (5 min
-    TTL below) matters more here than it did for AnnaBet.
+    Slower/heavier than a plain HTTP call — expect several seconds
+    per call. The 5-min cache below matters more here than for
+    AnnaBet's plain-requests fetcher.
     """
     cache_key = date_str
     cached = _DAY_CACHE.get(cache_key)
@@ -136,10 +148,6 @@ def _fetch_day_page(date_str):
 
             page.goto(url, timeout=45000, wait_until="domcontentloaded")
 
-            # Cloudflare's challenge takes a few seconds to resolve
-            # client-side before redirecting/rendering real content.
-            # Wait for the challenge title to disappear rather than a
-            # fixed sleep, with a fixed sleep as a fallback ceiling.
             try:
                 page.wait_for_function(
                     "document.title !== 'Just a moment...'",
@@ -161,130 +169,128 @@ def _fetch_day_page(date_str):
     return html
 
 
+# ------------------------------------------------------------
+# Parse — using confirmed data-* attribute structure
+# ------------------------------------------------------------
+
+def _extract_score(article):
+    score_div = article.find("div", class_=re.compile(r"\bfx-score\b"))
+    if not score_div:
+        return None, None
+
+    ems = score_div.find_all("em")
+    if len(ems) != 2:
+        return None, None
+
+    def parse(em):
+        text = em.get_text(strip=True)
+        return int(text) if text.isdigit() else None
+
+    return parse(ems[0]), parse(ems[1])
+
+
+def _extract_1x2_odds(article):
+    odds = {"home_odds": None, "draw_odds": None, "away_odds": None}
+
+    odds_div = article.find("div", attrs={"aria-label": "1X2"})
+    if not odds_div:
+        return odds
+
+    for btn in odds_div.find_all("button", attrs={"data-market": "1x2"}):
+        outcome = btn.get("data-outcome")
+        val = _float(btn.get("data-odd"))
+
+        if outcome == "home":
+            odds["home_odds"] = val
+        elif outcome == "draw":
+            odds["draw_odds"] = val
+        elif outcome == "away":
+            odds["away_odds"] = val
+
+    return odds
+
+
 def _parse_day_page(html):
     """
-    Parses the day page into:
-
+    Returns:
         {
-            "England - Premier League": [
-                {
-                    "time": "19:00",
-                    "status": "scheduled" | "live" | "FT" | "PST",
-                    "home": "Ipswich",
-                    "away": "Liverpool",
-                    "home_score": None,
-                    "away_score": None,
-                    "match_url": "https://oddsbook.com/football/.../1557393/",
-                    "home_odds": 6.50,
-                    "draw_odds": 5.13,
-                    "away_odds": 1.57,
-                },
-                ...
-            ],
+            "england/premier-league": {
+                "country_slug": "england",
+                "league_slug": "premier-league",
+                "league_id": "39",
+                "league_name": "Premier League",
+                "matches": [
+                    {
+                        "fixture_id": "1557393",
+                        "kickoff": "2026-09-04T19:00:00.000Z",  # ISO, UTC
+                        "status": "scheduled",
+                        "home": "Ipswich",
+                        "away": "Liverpool",
+                        "home_score": None,
+                        "away_score": None,
+                        "match_url": "https://oddsbook.com/football/.../1557393/",
+                        "home_odds": 6.25,
+                        "draw_odds": 5.13,
+                        "away_odds": 1.57,
+                    },
+                    ...
+                ],
+            },
             ...
         }
 
-    NOTE: this parser targets Oddsbook's rendered text/DOM structure
-    as observed via fetch during design — it has NOT been run against
-    raw HTML with BeautifulSoup yet (the design environment could only
-    reach Oddsbook through a text-extracting fetch tool, not raw
-    requests). Structure below (rows grouped under a league heading,
-    each row containing team names + a match link + three odds cells)
-    is a best-effort match to AnnaBet's row-scanning approach and
-    WILL likely need small selector fixes once run against real HTML
-    on Render — same as annabet_odds.py needed several iterations.
+    Keyed by "country_slug/league_slug" (not display name) — reliable
+    and matches oddsbook_leagues.py's get_oddsbook_slug() output
+    directly, so callers can look up a specific league without any
+    text-matching on display names.
     """
     soup = BeautifulSoup(html, "html.parser")
     by_league = {}
-    current_league = None
 
-    # Oddsbook groups fixtures under league header blocks containing a
-    # link to /football/{country}/{league}/ followed by a "· Country"
-    # label, then one row per match. We walk elements in document
-    # order and track the most recent league header seen.
-    league_link_re = re.compile(r"^/football/[^/]+/[^/]+/$")
-    match_link_re = re.compile(r"^/football/[^/]+/[^/]+/[^/]+/\d+/$")
+    sections = soup.find_all("section", attrs={"data-league-slug": True})
 
-    for el in soup.find_all(["a"]):
-        href = el.get("href", "")
+    for section in sections:
+        country_slug = section.get("data-country-slug")
+        league_slug = section.get("data-league-slug")
+        league_id = section.get("data-league")
 
-        # League header link (e.g. /football/england/premier-league/)
-        if league_link_re.match(href) and "standings" not in (el.get("title") or "").lower():
-            text = el.get_text(" ", strip=True)
-            if text and text not in ("Standings",):
-                current_league = text
-                by_league.setdefault(current_league, [])
-            continue
+        name_tag = section.find("a", class_=re.compile(r"\bleague-name\b"))
+        league_name = name_tag.get_text(strip=True) if name_tag else league_slug
 
-        # Match link (e.g. /football/england/premier-league/ipswich-vs-liverpool/1557393/)
-        if match_link_re.match(href):
-            row_text = el.get_text(" ", strip=True)
+        key = f"{country_slug}/{league_slug}"
 
-            # Extract status/time prefix (FT, PST, live minute, or HH:MM)
-            status = "scheduled"
-            time_str = None
+        matches = []
 
-            time_match = re.match(r"^(\d{1,2}:\d{2})\s+", row_text)
-            ft_match = re.match(r"^FT\s+", row_text)
-            pst_match = re.match(r"^PST\s+", row_text)
-            live_match = re.match(r"^(\d{1,3})'\s+", row_text)
+        for article in section.find_all("article", attrs={"data-game-item": True}):
+            home_score, away_score = _extract_score(article)
+            odds = _extract_1x2_odds(article)
 
-            if time_match:
-                time_str = time_match.group(1)
-                rest = row_text[time_match.end():]
-            elif ft_match:
-                status = "FT"
-                rest = row_text[ft_match.end():]
-            elif pst_match:
-                status = "PST"
-                rest = row_text[pst_match.end():]
-            elif live_match:
-                status = f"{live_match.group(1)}'"
-                rest = row_text[live_match.end():]
-            else:
-                rest = row_text
+            canonical = article.get("data-canonical-url", "")
+            match_url = (
+                ODDSBOOK_BASE + canonical if canonical.startswith("/") else canonical
+            )
 
-            # rest is like "Ipswich Liverpool -  -" or "Aston Villa Arsenal 0 1"
-            # Scores are the last two tokens if both are digits, else None.
-            tokens = rest.split()
-            home_score = away_score = None
-
-            if len(tokens) >= 2 and tokens[-1].lstrip("-").isdigit() and tokens[-2].lstrip("-").isdigit():
-                away_score = _float(tokens[-1]) and int(tokens[-1])
-                home_score = _float(tokens[-2]) and int(tokens[-2])
-                team_text = " ".join(tokens[:-2])
-            else:
-                team_text = rest
-
-            # Team names aren't separated by a delimiter in the extracted
-            # text (concatenated "HomeAway" in some fetch modes) — this
-            # is the biggest risk point needing live-HTML confirmation.
-            # Prefer splitting on the match URL slug instead, which IS
-            # reliably delimited by " vs ".
-            slug_match = re.search(r"/([^/]+)-vs-([^/]+)/\d+/$", href)
-
-            if slug_match:
-                home_guess = slug_match.group(1).replace("-", " ").title()
-                away_guess = slug_match.group(2).replace("-", " ").title()
-            else:
-                home_guess = team_text
-                away_guess = ""
-
-            if current_league is None:
-                continue
-
-            by_league[current_league].append({
-                "time": time_str,
-                "status": status,
-                "home": home_guess,
-                "away": away_guess,
+            matches.append({
+                "fixture_id": article.get("data-fixture-id"),
+                "kickoff": article.get("data-kickoff"),
+                "status": article.get("data-status"),
+                "home": article.get("data-home-name"),
+                "away": article.get("data-away-name"),
+                "home_id": article.get("data-home-id"),
+                "away_id": article.get("data-away-id"),
                 "home_score": home_score,
                 "away_score": away_score,
-                "match_url": ODDSBOOK_BASE + href,
-                "home_odds": None,
-                "draw_odds": None,
-                "away_odds": None,
+                "match_url": match_url or None,
+                **odds,
             })
+
+        by_league[key] = {
+            "country_slug": country_slug,
+            "league_slug": league_slug,
+            "league_id": league_id,
+            "league_name": league_name,
+            "matches": matches,
+        }
 
     return by_league
 
@@ -292,13 +298,7 @@ def _parse_day_page(html):
 def get_fixtures_for_day(target_date=None):
     """
     target_date: a datetime.date, or None for today.
-
-    Returns { "Country - League": [match_dict, ...], ... }
-    Keys use Oddsbook's own display league name (e.g. "Premier League")
-    — NOT yet normalized to the "Country - League" format the rest of
-    the pipeline uses. Call normalize against ODDSBOOK_LEAGUES from
-    oddsbook_leagues.py to match Kickwise's naming, or match by league
-    URL slug instead, which is more reliable than display-name text.
+    Returns the by_league dict described in _parse_day_page's docstring.
     """
     if target_date is None:
         target_date = date.today()
@@ -326,10 +326,6 @@ def get_oddsbook_market_odds(home, away, target_date=None):
         }
 
     market_ou25 is currently always None — see module docstring.
-    Once confirmed where O/U 2.5 lives on Oddsbook, add a
-    get_oddsbook_ou25(match_url) function (parsing the individual
-    match page) and call it here, same pattern as annabet_odds.py's
-    _extract_ou25(h2h_url).
     """
     result = {"market_odds": None, "market_ou25": None}
 
@@ -338,8 +334,8 @@ def get_oddsbook_market_odds(home, away, target_date=None):
     target_home = _norm_team(home)
     target_away = _norm_team(away)
 
-    for matches in by_league.values():
-        for m in matches:
+    for league_data in by_league.values():
+        for m in league_data["matches"]:
             if _norm_team(m["home"]) != target_home:
                 continue
             if _norm_team(m["away"]) != target_away:
