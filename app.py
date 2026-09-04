@@ -56,6 +56,84 @@ def test_odds(home: str = Query(...), away: str = Query(...)):
     return get_oddsbook_market_odds(home, away)
 
 
+@app.get("/debug-standings")
+def debug_standings(
+    country: str = Query(...),
+    league: str = Query(...),
+):
+    """
+    Diagnostic — loads a league's Oddsbook page (e.g. country=england,
+    league=premier-league) and clicks into the Standings tab (client-
+    rendered Next.js content, not a separate URL we've found yet), then
+    dumps the resulting table HTML so oddsbook_stats.py's real parser
+    can be written against confirmed markup.
+    """
+    from playwright.sync_api import sync_playwright
+
+    url = f"https://oddsbook.com/football/{country}/{league}/"
+
+    user_agent = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    )
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage"],
+            )
+            context = browser.new_context(user_agent=user_agent)
+            page = context.new_page()
+
+            page.goto(url, timeout=45000, wait_until="domcontentloaded")
+
+            try:
+                page.wait_for_function(
+                    "document.title !== 'Just a moment...'",
+                    timeout=20000,
+                )
+            except Exception:
+                pass
+
+            page.wait_for_timeout(1500)
+
+            page_title = page.title()
+
+            # Try to find and click a "Standings" tab/link.
+            clicked = False
+            click_error = None
+            try:
+                standings_el = page.get_by_text("Standings", exact=True).first
+                standings_el.click(timeout=8000)
+                clicked = True
+                page.wait_for_timeout(2000)
+            except Exception as e:
+                click_error = str(e)
+
+            html = page.content()
+            browser.close()
+
+    except Exception as e:
+        return {"fetch_exception": str(e), "url": url}
+
+    soup = BeautifulSoup(html, "html.parser")
+    tables = soup.find_all("table")
+
+    table_previews = [str(t)[:2500] for t in tables[:3]]
+
+    return {
+        "url": url,
+        "page_title": page_title,
+        "clicked_standings_tab": clicked,
+        "click_error": click_error,
+        "table_count": len(tables),
+        "table_previews": table_previews,
+        "response_length": len(html),
+    }
+
+
 @app.get("/debug-html")
 def debug_html(date_str: str = Query(None, alias="date")):
     """
