@@ -8,7 +8,7 @@ from fastapi import FastAPI, Query
 from datetime import date, datetime
 import re
 
-from oddsbook_odds import get_fixtures_for_day, get_oddsbook_market_odds, _fetch_day_page
+from oddsbook_odds import get_fixtures_for_day, get_oddsbook_market_odds
 from oddsbook_leagues import verify_all_slugs
 from bs4 import BeautifulSoup
 
