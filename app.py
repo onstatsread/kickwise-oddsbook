@@ -6,9 +6,11 @@ No shell/SSH needed.
 
 from fastapi import FastAPI, Query
 from datetime import date, datetime
+import re
 
-from oddsbook_odds import get_fixtures_for_day, get_oddsbook_market_odds
+from oddsbook_odds import get_fixtures_for_day, get_oddsbook_market_odds, _fetch_day_page
 from oddsbook_leagues import verify_all_slugs
+from bs4 import BeautifulSoup
 
 app = FastAPI(title="Oddsbook Fetcher Test")
 
@@ -52,6 +54,60 @@ def test_odds(home: str = Query(...), away: str = Query(...)):
     Visit: /test-odds?home=Liverpool&away=Arsenal
     """
     return get_oddsbook_market_odds(home, away)
+
+
+@app.get("/debug-html")
+def debug_html(date_str: str = Query(None, alias="date")):
+    """
+    Diagnostic — shows the REAL raw HTML structure of Oddsbook's day
+    page, so the parser in oddsbook_odds.py can be fixed against
+    what's actually there instead of a guess.
+    """
+    target = (
+        datetime.strptime(date_str, "%Y-%m-%d").date()
+        if date_str else date.today()
+    )
+    date_s = target.strftime("%Y-%m-%d")
+
+    html = _fetch_day_page(date_s)
+
+    if not html:
+        return {"error": "fetch failed — no HTML returned"}
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    all_links = soup.find_all("a", href=True)
+
+    match_link_re = re.compile(r"^/football/[^/]+/[^/]+/[^/]+/\d+/?$")
+    league_link_re = re.compile(r"^/football/[^/]+/[^/]+/?$")
+
+    match_links = [a["href"] for a in all_links if match_link_re.match(a["href"])]
+    league_links = [a["href"] for a in all_links if league_link_re.match(a["href"])]
+
+    # Grab the raw HTML around the FIRST match link found, so we can
+    # see the actual tag structure (classes, nesting) surrounding a
+    # single fixture row.
+    sample_html = ""
+    if match_links:
+        first_link_tag = soup.find("a", href=match_links[0])
+        if first_link_tag:
+            # Walk up a couple of parent levels to capture the whole row
+            container = first_link_tag
+            for _ in range(3):
+                if container.parent:
+                    container = container.parent
+            sample_html = str(container)[:3000]
+
+    return {
+        "date": date_s,
+        "total_html_length": len(html),
+        "total_a_tags": len(all_links),
+        "match_links_found": len(match_links),
+        "league_links_found": len(league_links),
+        "sample_match_links": match_links[:5],
+        "sample_league_links": league_links[:10],
+        "sample_row_html": sample_html,
+    }
 
 
 @app.get("/test-slugs")
