@@ -295,9 +295,36 @@ def _parse_day_page(html):
     return by_league
 
 
-def get_fixtures_for_day(target_date=None):
+# Keywords that mark a competition as a cup/knockout tournament rather
+# than a domestic league — matched against the league's slug OR display
+# name (case-insensitive substring). Filtered out by default in
+# get_fixtures_for_day() since Kickwise's existing scope (LEAGUE_CODES
+# in daily_predictions.py) is domestic leagues only, same reasoning as
+# annabet_leagues.py's own scope note ("skipping cups/super cups/youth/
+# friendlies to keep this comparable and relevant to the prediction
+# model").
+CUP_KEYWORDS = (
+    "cup", "trophy", "shield", "champions league", "confederation",
+    "playoff", "play-off", "playoffs", "supercup", "super cup",
+    "europa league", "conference league", "libertadores",
+    "sudamericana", "afc champions", "caf champions",
+)
+
+
+def _is_cup_competition(league_slug, league_name):
+    text = f"{league_slug or ''} {league_name or ''}".lower()
+    return any(kw in text for kw in CUP_KEYWORDS)
+
+
+def get_fixtures_for_day(target_date=None, exclude_cups=True):
     """
     target_date: a datetime.date, or None for today.
+    exclude_cups: if True (default), filters out cup/knockout
+        competitions (FA Cup, CAF Champions League, etc.) and keeps
+        only domestic league competitions — matches Kickwise's
+        existing scope. Pass False to get everything, e.g. for
+        debugging/inspecting what's on a given day.
+
     Returns the by_league dict described in _parse_day_page's docstring.
     """
     if target_date is None:
@@ -309,7 +336,16 @@ def get_fixtures_for_day(target_date=None):
     if not html:
         return {}
 
-    return _parse_day_page(html)
+    by_league = _parse_day_page(html)
+
+    if exclude_cups:
+        by_league = {
+            key: data
+            for key, data in by_league.items()
+            if not _is_cup_competition(data.get("league_slug"), data.get("league_name"))
+        }
+
+    return by_league
 
 
 # ------------------------------------------------------------
