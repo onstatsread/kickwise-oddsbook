@@ -126,24 +126,21 @@ def debug_html(date_str: str = Query(None, alias="date")):
     match_links = [a["href"] for a in all_links if match_link_re.match(a["href"])]
     league_links = [a["href"] for a in all_links if league_link_re.match(a["href"])]
 
-    sample_html = ""
-    if match_links:
-        first_link_tag = soup.find("a", href=match_links[0])
-        if first_link_tag:
-            container = first_link_tag
-            for _ in range(3):
-                if container.parent:
-                    container = container.parent
-            sample_html = str(container)[:3000]
-
     result.update({
         "total_a_tags": len(all_links),
         "match_links_found": len(match_links),
         "league_links_found": len(league_links),
         "sample_match_links": match_links[:5],
         "sample_league_links": league_links[:10],
-        "sample_row_html": sample_html,
     })
+
+    # Grab ONE full <article class="... game-item ..."> element specifically
+    # (not a generic 3-parents-up walk), since that's where odds should be.
+    article = soup.find("article", class_=re.compile(r"game-item"))
+    if article:
+        result["full_article_html"] = str(article)[:6000]
+    else:
+        result["full_article_html"] = "NOT FOUND — check class name"
 
     return result
 
