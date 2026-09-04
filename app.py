@@ -65,7 +65,7 @@ def debug_html(date_str: str = Query(None, alias="date")):
     (not via the silently-failing helper) so real errors/status
     codes/response bodies are visible instead of swallowed.
     """
-    import requests as _requests
+    import cloudscraper as _cloudscraper
 
     target = (
         datetime.strptime(date_str, "%Y-%m-%d").date()
@@ -74,18 +74,12 @@ def debug_html(date_str: str = Query(None, alias="date")):
     date_s = target.strftime("%Y-%m-%d")
     url = f"https://oddsbook.com/football/?date={date_s}"
 
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
+    scraper = _cloudscraper.create_scraper(
+        browser={"browser": "chrome", "platform": "windows", "mobile": False}
+    )
 
     try:
-        resp = _requests.get(url, headers=headers, timeout=25)
+        resp = scraper.get(url, timeout=25)
     except Exception as e:
         return {"fetch_exception": str(e), "url": url}
 
