@@ -65,7 +65,7 @@ def debug_html(date_str: str = Query(None, alias="date")):
     (not via the silently-failing helper) so real errors/status
     codes/response bodies are visible instead of swallowed.
     """
-    import cloudscraper as _cloudscraper
+    from playwright.sync_api import sync_playwright
 
     target = (
         datetime.strptime(date_str, "%Y-%m-%d").date()
@@ -74,27 +74,48 @@ def debug_html(date_str: str = Query(None, alias="date")):
     date_s = target.strftime("%Y-%m-%d")
     url = f"https://oddsbook.com/football/?date={date_s}"
 
-    scraper = _cloudscraper.create_scraper(
-        browser={"browser": "chrome", "platform": "windows", "mobile": False}
+    user_agent = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
     )
 
     try:
-        resp = scraper.get(url, timeout=25)
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage"],
+            )
+            context = browser.new_context(user_agent=user_agent)
+            page = context.new_page()
+            page.goto(url, timeout=45000, wait_until="domcontentloaded")
+
+            try:
+                page.wait_for_function(
+                    "document.title !== 'Just a moment...'",
+                    timeout=20000,
+                )
+            except Exception:
+                pass
+
+            page.wait_for_timeout(2000)
+
+            title = page.title()
+            html = page.content()
+            browser.close()
     except Exception as e:
         return {"fetch_exception": str(e), "url": url}
 
     result = {
         "url": url,
-        "status_code": resp.status_code,
-        "response_length": len(resp.text),
-        "response_headers": dict(resp.headers),
-        "first_1000_chars": resp.text[:1000],
+        "page_title": title,
+        "response_length": len(html),
+        "first_1000_chars": html[:1000],
     }
 
-    if resp.status_code != 200:
+    if title == "Just a moment...":
+        result["warning"] = "Still hitting the Cloudflare challenge page"
         return result
-
-    html = resp.text
     soup = BeautifulSoup(html, "html.parser")
 
     all_links = soup.find_all("a", href=True)
