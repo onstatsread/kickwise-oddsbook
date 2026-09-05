@@ -153,35 +153,41 @@ def debug_standings(
         if any(k in c.lower() for k in ["stand", "rank", "table", "row"])
     )
 
-    tabpanels = soup.find_all(attrs={"role": "tabpanel"})
+    first_tab = soup.find("button", class_="ep-tab")
 
-    panel_info = []
-    for tp in tabpanels:
-        text_preview = tp.get_text(" ", strip=True)[:300]
-        panel_info.append({
-            "class": tp.get("class"),
-            "hidden": tp.get("hidden"),
-            "aria_hidden": tp.get("aria-hidden"),
-            "id": tp.get("id"),
-            "html_length": len(str(tp)),
-            "text_preview": text_preview,
-        })
+    result_extra = {}
+    if first_tab:
+        # Walk up to find the tab-bar container (parent holding all
+        # ep-tab buttons), then look at what follows it in the DOM —
+        # that's very likely the actual content panel.
+        tab_bar = first_tab.parent
+        siblings_after = []
+        sib = tab_bar.find_next_sibling()
+        count = 0
+        while sib and count < 3:
+            siblings_after.append({
+                "tag": sib.name,
+                "class": sib.get("class"),
+                "html_length": len(str(sib)),
+                "text_preview": sib.get_text(" ", strip=True)[:400],
+                "html_snippet": str(sib)[:4000],
+            })
+            sib = sib.find_next_sibling()
+            count += 1
 
-    # Grab full HTML of the largest tabpanel (most likely the active,
-    # populated one) rather than guessing which index is right.
-    largest_panel_html = ""
-    if tabpanels:
-        largest = max(tabpanels, key=lambda t: len(str(t)))
-        largest_panel_html = str(largest)[:6000]
+        result_extra = {
+            "tab_bar_tag": tab_bar.name,
+            "tab_bar_class": tab_bar.get("class"),
+            "tab_bar_parent_tag": tab_bar.parent.name if tab_bar.parent else None,
+            "siblings_after_tab_bar": siblings_after,
+        }
 
     return {
         "url": url,
         "page_title": page_title,
         "clicked_standings_tab": clicked,
         "click_error": click_error,
-        "tabpanel_count": len(tabpanels),
-        "tabpanel_info": panel_info,
-        "largest_panel_html": largest_panel_html,
+        **result_extra,
         "response_length": len(html),
     }
 
