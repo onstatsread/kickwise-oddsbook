@@ -4,13 +4,13 @@ Oddsbook standings exploration script — run via GitHub Actions
 workflow log instead of returning JSON via a FastAPI endpoint.
 
 Goal: find where/how Oddsbook renders standings (GP/W/D/L/GF/GA)
-data for a league page, since the "Standings" tab is a client-side
-React tab (not a separate URL) and its content hasn't shown up in
-several targeted searches so far.
+data for a league page. Confirmed so far: the Standings tab click
+DOES register (aria-selected=true), but the panel's visible text
+just shows a "—" placeholder — data isn't rendering. GF/GA/GD exist
+a couple times in raw HTML (likely just column headers/labels), but
+no populated row data has shown up yet.
 """
 
-import re
-import sys
 from playwright.sync_api import sync_playwright
 
 COUNTRY = "england"
@@ -23,19 +23,28 @@ USER_AGENT = (
 )
 
 
+def print_keyword_contexts(html, keywords, window=400):
+    for kw in keywords:
+        start = 0
+        while True:
+            idx = html.find(kw, start)
+            if idx == -1:
+                break
+            context = html[max(0, idx - window):idx + window]
+            print(f"\n>>> {kw!r} at index {idx}:\n{context}\n")
+            start = idx + 1
+
+
 def main():
     url = f"https://oddsbook.com/football/{COUNTRY}/{LEAGUE}/"
     print(f"Loading {url} ...")
+
+    api_calls = []
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(user_agent=USER_AGENT)
         page = context.new_page()
-
-        # Log every network request that looks like an API call, so we
-        # can see if Standings data loads via a separate XHR/fetch —
-        # this is the thing our HTML-only inspection couldn't show us.
-        api_calls = []
 
         def on_request(request):
             if any(
@@ -58,55 +67,43 @@ def main():
         page.wait_for_timeout(2000)
         print(f"Page title after challenge: {page.title()}")
 
-        print("\n--- API-like requests seen BEFORE clicking Standings ---")
-        for u in api_calls:
-            print(u)
-
         # Click the Standings tab.
         try:
             page.get_by_role("tab", name="Standings", exact=True).click(timeout=8000)
-            print("\nClicked Standings tab successfully.")
+            print("Clicked Standings tab successfully.")
         except Exception as e:
-            print(f"\nClick failed: {e}")
+            print(f"Click failed: {e}")
 
-        page.wait_for_timeout(4000)
+        page.wait_for_timeout(3000)
 
-        print("\n--- API-like requests seen AFTER clicking Standings ---")
-        for u in api_calls:
-            print(u)
-
-        # Check the tab's aria-selected state directly.
+        # Try scrolling the tab panel area into view + wait longer,
+        # in case it's a lazy/virtualized list.
         try:
-            is_selected = page.get_by_role(
-                "tab", name="Standings", exact=True
-            ).get_attribute("aria-selected")
-            print(f"\nStandings tab aria-selected = {is_selected}")
+            page.mouse.wheel(0, 600)
+            page.wait_for_timeout(3000)
+            print("Scrolled down and waited an extra 3s.")
         except Exception as e:
-            print(f"Could not check aria-selected: {e}")
+            print(f"Scroll attempt failed: {e}")
 
-        # Dump visible text of the whole page body — small enough to
-        # read directly in the Actions log, and will show us plainly
-        # whether standings numbers are present ANYWHERE, in whatever
-        # format they use.
+        print(f"\nAPI-like requests seen so far ({len(api_calls)}):")
+        for u in api_calls:
+            print(f"  {u}")
+
         body_text = page.inner_text("body")
         print(f"\n--- Full visible body text ({len(body_text)} chars) ---")
         print(body_text[:8000])
-        print("\n--- (truncated at 8000 chars if longer) ---")
 
-        # Also dump the raw HTML of whatever element currently has
-        # focus/active state near the tabs, using the same "next
-        # sibling after tab bar" approach as before, for comparison.
         html = page.content()
         browser.close()
 
     print(f"\nTotal HTML length: {len(html)}")
 
-    # Quick keyword scan across the FULL html (not just visible text)
-    # for common standings header variants.
-    keywords = ["GF", "GA", "GD", "MP", "Pts", "PTS", "Pld", "W D L"]
+    keywords = ["GF", "GA", "GD", "MP", "Pts", "PTS", "Pld"]
     for kw in keywords:
-        count = html.count(kw)
-        print(f"Occurrences of {kw!r} in raw HTML: {count}")
+        print(f"Occurrences of {kw!r} in raw HTML: {html.count(kw)}")
+
+    print("\n--- Context around each GF/GA/GD/Pts occurrence ---")
+    print_keyword_contexts(html, ["GF", "GA", "GD", "Pts"])
 
 
 if __name__ == "__main__":
