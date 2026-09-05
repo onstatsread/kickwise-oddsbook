@@ -103,51 +103,38 @@ def main():
         human_delay(1.5, 2.5)
         print(f"Page title: {page.title()}")
 
-        # Human-like mouse movement before interacting.
-        try:
-            page.mouse.move(200, 300)
-            human_delay(0.3, 0.7)
-            page.mouse.move(400, 450, steps=10)
-            human_delay(0.3, 0.7)
-        except Exception as e:
-            print(f"Mouse movement failed: {e}")
+        # Direct in-page fetch() calls — guarantees the exact same
+        # browser fingerprint/TLS/headers as the page's own requests
+        # (which we just confirmed CAN pass Cloudflare using the real
+        # Chrome channel), without depending on UI click reliability.
+        endpoints = {
+            "standings": "https://oddsbook.com/bff/league/39/tab/standings/?sport=football&season=2026&lang=en",
+            "statistics": "https://oddsbook.com/bff/league/39/tab/statistics/?sport=football&season=2026&lang=en",
+        }
 
-        before_count = len(captured)
-
-        try:
-            standings_tab = page.get_by_role("tab", name="Standings", exact=True)
-            box = standings_tab.bounding_box()
-            if box:
-                # Move mouse to the tab first, pause, then click —
-                # more human-like than an instant programmatic click.
-                page.mouse.move(
-                    box["x"] + box["width"] / 2,
-                    box["y"] + box["height"] / 2,
-                    steps=15,
+        for name, endpoint_url in endpoints.items():
+            print(f"\n--- Direct in-page fetch: {name} ---")
+            try:
+                result = page.evaluate(
+                    """async (url) => {
+                        const resp = await fetch(url, {
+                            headers: { 'Accept': 'application/json' },
+                            credentials: 'include'
+                        });
+                        const text = await resp.text();
+                        return { status: resp.status, body: text };
+                    }""",
+                    endpoint_url,
                 )
-                human_delay(0.2, 0.5)
-            standings_tab.click(timeout=8000)
-            print("Clicked Standings tab.")
-        except Exception as e:
-            print(f"Click failed: {e}")
+                status = result["status"]
+                body = result["body"]
+                is_challenge = "Just a moment" in body
+                print(f"Status: {status}, is_challenge: {is_challenge}, body_len: {len(body)}")
+                print(f"Preview: {body[:2000]}")
+            except Exception as e:
+                print(f"fetch() failed: {e}")
 
-        human_delay(3, 4)
-
-        new_responses = captured[before_count:]
-        print(f"\nAll bff/league responses captured BEFORE click ({before_count}):")
-        for c in captured[:before_count]:
-            print(f"\n  [{c['status']}] {c['url']}")
-            print(f"  is_challenge={c['is_challenge']}, body_len={c['body_len']}")
-            print(f"  Preview: {c['body_preview'][:800]}")
-
-        print(f"\nBFF responses captured AFTER clicking Standings ({len(new_responses)} new):")
-        for c in new_responses:
-            print(f"\n  [{c['status']}] {c['url']}")
-            print(f"  is_challenge={c['is_challenge']}, body_len={c['body_len']}")
-            print(f"  Preview: {c['body_preview']}")
-
-        if not new_responses:
-            print("  (none captured)")
+            human_delay(1, 2)
 
         browser.close()
 
