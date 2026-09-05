@@ -17,8 +17,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install playwright
+          pip install playwright playwright-stealth
           playwright install --with-deps chromium
+          playwright install --with-deps chrome
 
       - name: Run Oddsbook standings exploration
         run: python explore_oddsbook_standings.py
