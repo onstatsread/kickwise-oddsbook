@@ -24,8 +24,10 @@ from playwright.sync_api import sync_playwright
 try:
     from playwright_stealth import stealth_sync
     HAS_STEALTH = True
-except ImportError:
+    STEALTH_IMPORT_ERROR = None
+except Exception as e:
     HAS_STEALTH = False
+    STEALTH_IMPORT_ERROR = str(e)
 
 COUNTRY = "england"
 LEAGUE = "premier-league"
@@ -43,6 +45,8 @@ def human_delay(a=0.5, b=1.5):
 
 def main():
     print(f"playwright-stealth available: {HAS_STEALTH}")
+    if not HAS_STEALTH:
+        print(f"Stealth import error: {STEALTH_IMPORT_ERROR}")
 
     url = f"https://oddsbook.com/football/{COUNTRY}/{LEAGUE}/"
     captured = []
@@ -130,6 +134,12 @@ def main():
         human_delay(3, 4)
 
         new_responses = captured[before_count:]
+        print(f"\nAll bff/league responses captured BEFORE click ({before_count}):")
+        for c in captured[:before_count]:
+            print(f"\n  [{c['status']}] {c['url']}")
+            print(f"  is_challenge={c['is_challenge']}, body_len={c['body_len']}")
+            print(f"  Preview: {c['body_preview'][:800]}")
+
         print(f"\nBFF responses captured AFTER clicking Standings ({len(new_responses)} new):")
         for c in new_responses:
             print(f"\n  [{c['status']}] {c['url']}")
