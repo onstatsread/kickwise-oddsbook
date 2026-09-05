@@ -153,14 +153,32 @@ def debug_standings(
         if any(k in c.lower() for k in ["stand", "rank", "table", "row"])
     )
 
+    # The "GD" match landed inside a <script> tag, not visible HTML —
+    # Next.js apps often embed page data as JSON in script payloads
+    # (either a classic __NEXT_DATA__ block, or App-Router-style
+    # self.__next_f.push(...) streamed chunks). Search script contents
+    # directly for standings-shaped keys.
+    scripts = soup.find_all("script")
+
+    matching_scripts = []
+    for i, s in enumerate(scripts):
+        text = s.string or s.get_text() or ""
+        if re.search(r'"(GD|goalDifference|played|goalsFor|MP)"', text):
+            matching_scripts.append({
+                "script_index": i,
+                "script_id": s.get("id"),
+                "length": len(text),
+                "snippet": text[:4000],
+            })
+
     return {
         "url": url,
         "page_title": page_title,
         "clicked_standings_tab": clicked,
         "click_error": click_error,
-        "keyword_hits_in_body_text": keyword_hits,
-        "gd_context_html": gd_context,
-        "standings_like_class_names": standings_like_classes[:40],
+        "total_script_tags": len(scripts),
+        "matching_script_count": len(matching_scripts),
+        "matching_scripts": matching_scripts[:2],
         "response_length": len(html),
     }
 
