@@ -153,29 +153,30 @@ def debug_standings(
         if any(k in c.lower() for k in ["stand", "rank", "table", "row"])
     )
 
-    league_path = f"/football/{country}/{league}"
-    own_links = []
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if href.startswith(league_path):
-            text = a.get_text(" ", strip=True)
-            own_links.append({"href": href, "text": text, "class": a.get("class")})
+    tab_labels = [
+        "Overview", "Fixtures", "Results", "Standings",
+        "Statistics", "Team Analysis", "Player Statistics",
+    ]
 
-    # De-duplicate by (href, text)
-    seen = set()
-    unique_links = []
-    for l in own_links:
-        key = (l["href"], l["text"])
-        if key not in seen:
-            seen.add(key)
-            unique_links.append(l)
+    tab_elements = []
+    for label in tab_labels:
+        for el in soup.find_all(string=re.compile(rf"^{re.escape(label)}$")):
+            parent = el.parent
+            tab_elements.append({
+                "label": label,
+                "tag": parent.name,
+                "class": parent.get("class"),
+                "role": parent.get("role"),
+                "aria_selected": parent.get("aria-selected"),
+                "outer_html": str(parent)[:500],
+            })
 
     return {
         "url": url,
         "page_title": page_title,
         "clicked_standings_tab": clicked,
         "click_error": click_error,
-        "links_under_this_league_path": unique_links[:30],
+        "tab_elements_found": tab_elements,
         "response_length": len(html),
     }
 
