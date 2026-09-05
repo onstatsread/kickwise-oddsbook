@@ -108,7 +108,7 @@ def debug_standings(
                 standings_el = page.get_by_text("Standings", exact=True).first
                 standings_el.click(timeout=8000)
                 clicked = True
-                page.wait_for_timeout(2000)
+                page.wait_for_timeout(4000)
             except Exception as e:
                 click_error = str(e)
 
@@ -153,30 +153,35 @@ def debug_standings(
         if any(k in c.lower() for k in ["stand", "rank", "table", "row"])
     )
 
-    tab_labels = [
-        "Overview", "Fixtures", "Results", "Standings",
-        "Statistics", "Team Analysis", "Player Statistics",
-    ]
+    tabpanels = soup.find_all(attrs={"role": "tabpanel"})
 
-    tab_elements = []
-    for label in tab_labels:
-        for el in soup.find_all(string=re.compile(rf"^{re.escape(label)}$")):
-            parent = el.parent
-            tab_elements.append({
-                "label": label,
-                "tag": parent.name,
-                "class": parent.get("class"),
-                "role": parent.get("role"),
-                "aria_selected": parent.get("aria-selected"),
-                "outer_html": str(parent)[:500],
-            })
+    panel_info = []
+    for tp in tabpanels:
+        text_preview = tp.get_text(" ", strip=True)[:300]
+        panel_info.append({
+            "class": tp.get("class"),
+            "hidden": tp.get("hidden"),
+            "aria_hidden": tp.get("aria-hidden"),
+            "id": tp.get("id"),
+            "html_length": len(str(tp)),
+            "text_preview": text_preview,
+        })
+
+    # Grab full HTML of the largest tabpanel (most likely the active,
+    # populated one) rather than guessing which index is right.
+    largest_panel_html = ""
+    if tabpanels:
+        largest = max(tabpanels, key=lambda t: len(str(t)))
+        largest_panel_html = str(largest)[:6000]
 
     return {
         "url": url,
         "page_title": page_title,
         "clicked_standings_tab": clicked,
         "click_error": click_error,
-        "tab_elements_found": tab_elements,
+        "tabpanel_count": len(tabpanels),
+        "tabpanel_info": panel_info,
+        "largest_panel_html": largest_panel_html,
         "response_length": len(html),
     }
 
