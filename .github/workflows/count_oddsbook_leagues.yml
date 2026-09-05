@@ -1,0 +1,24 @@
+name: Count Oddsbook Leagues
+
+on:
+  workflow_dispatch:
+
+jobs:
+  count_leagues:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Run Oddsbook league count
+        run: python count_oddsbook_leagues.py
