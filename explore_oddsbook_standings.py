@@ -39,7 +39,7 @@ def main():
     url = f"https://oddsbook.com/football/{COUNTRY}/{LEAGUE}/"
     print(f"Loading {url} ...")
 
-    api_calls = []
+    all_xhr_requests = []
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -47,11 +47,8 @@ def main():
         page = context.new_page()
 
         def on_request(request):
-            if any(
-                marker in request.url
-                for marker in ["/api/", "standings", "table", "_next/data"]
-            ):
-                api_calls.append(request.url)
+            if request.resource_type in ("xhr", "fetch"):
+                all_xhr_requests.append(f"{request.method} {request.url}")
 
         page.on("request", on_request)
 
@@ -67,17 +64,21 @@ def main():
         page.wait_for_timeout(2000)
         print(f"Page title after challenge: {page.title()}")
 
+        print(f"\nXHR/fetch requests BEFORE clicking Standings ({len(all_xhr_requests)}):")
+        for u in all_xhr_requests:
+            print(f"  {u}")
+
+        before_count = len(all_xhr_requests)
+
         # Click the Standings tab.
         try:
             page.get_by_role("tab", name="Standings", exact=True).click(timeout=8000)
-            print("Clicked Standings tab successfully.")
+            print("\nClicked Standings tab successfully.")
         except Exception as e:
-            print(f"Click failed: {e}")
+            print(f"\nClick failed: {e}")
 
         page.wait_for_timeout(3000)
 
-        # Try scrolling the tab panel area into view + wait longer,
-        # in case it's a lazy/virtualized list.
         try:
             page.mouse.wheel(0, 600)
             page.wait_for_timeout(3000)
@@ -85,8 +86,9 @@ def main():
         except Exception as e:
             print(f"Scroll attempt failed: {e}")
 
-        print(f"\nAPI-like requests seen so far ({len(api_calls)}):")
-        for u in api_calls:
+        new_requests = all_xhr_requests[before_count:]
+        print(f"\nXHR/fetch requests AFTER clicking Standings ({len(new_requests)} new):")
+        for u in new_requests:
             print(f"  {u}")
 
         body_text = page.inner_text("body")
