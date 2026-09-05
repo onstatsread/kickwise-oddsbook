@@ -1,0 +1,22 @@
+name: Test WorldFootball
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test_worldfootball:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run WorldFootball test
+        run: python test_worldfootball.py
