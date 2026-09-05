@@ -153,29 +153,29 @@ def debug_standings(
         if any(k in c.lower() for k in ["stand", "rank", "table", "row"])
     )
 
-    lsb_rows = soup.find_all(class_="lsb-row")
-    mm_rows = soup.find_all(class_="mm-row")
+    league_path = f"/football/{country}/{league}"
+    own_links = []
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if href.startswith(league_path):
+            text = a.get_text(" ", strip=True)
+            own_links.append({"href": href, "text": text, "class": a.get("class")})
 
-    # Also grab a wider container around the first lsb-row (its parent
-    # table/list wrapper) to see column headers, not just one data row.
-    lsb_container_html = ""
-    if lsb_rows:
-        container = lsb_rows[0]
-        for _ in range(3):
-            if container.parent:
-                container = container.parent
-        lsb_container_html = str(container)[:5000]
+    # De-duplicate by (href, text)
+    seen = set()
+    unique_links = []
+    for l in own_links:
+        key = (l["href"], l["text"])
+        if key not in seen:
+            seen.add(key)
+            unique_links.append(l)
 
     return {
         "url": url,
         "page_title": page_title,
         "clicked_standings_tab": clicked,
         "click_error": click_error,
-        "lsb_row_count": len(lsb_rows),
-        "lsb_row_samples": [str(r)[:1500] for r in lsb_rows[:3]],
-        "lsb_container_html": lsb_container_html,
-        "mm_row_count": len(mm_rows),
-        "mm_row_samples": [str(r)[:1000] for r in mm_rows[:2]],
+        "links_under_this_league_path": unique_links[:30],
         "response_length": len(html),
     }
 
