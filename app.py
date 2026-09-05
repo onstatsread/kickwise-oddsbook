@@ -153,32 +153,29 @@ def debug_standings(
         if any(k in c.lower() for k in ["stand", "rank", "table", "row"])
     )
 
-    # The "GD" match landed inside a <script> tag, not visible HTML —
-    # Next.js apps often embed page data as JSON in script payloads
-    # (either a classic __NEXT_DATA__ block, or App-Router-style
-    # self.__next_f.push(...) streamed chunks). Search script contents
-    # directly for standings-shaped keys.
-    scripts = soup.find_all("script")
+    lsb_rows = soup.find_all(class_="lsb-row")
+    mm_rows = soup.find_all(class_="mm-row")
 
-    matching_scripts = []
-    for i, s in enumerate(scripts):
-        text = s.string or s.get_text() or ""
-        if re.search(r'"(GD|goalDifference|played|goalsFor|MP)"', text):
-            matching_scripts.append({
-                "script_index": i,
-                "script_id": s.get("id"),
-                "length": len(text),
-                "snippet": text[:4000],
-            })
+    # Also grab a wider container around the first lsb-row (its parent
+    # table/list wrapper) to see column headers, not just one data row.
+    lsb_container_html = ""
+    if lsb_rows:
+        container = lsb_rows[0]
+        for _ in range(3):
+            if container.parent:
+                container = container.parent
+        lsb_container_html = str(container)[:5000]
 
     return {
         "url": url,
         "page_title": page_title,
         "clicked_standings_tab": clicked,
         "click_error": click_error,
-        "total_script_tags": len(scripts),
-        "matching_script_count": len(matching_scripts),
-        "matching_scripts": matching_scripts[:2],
+        "lsb_row_count": len(lsb_rows),
+        "lsb_row_samples": [str(r)[:1500] for r in lsb_rows[:3]],
+        "lsb_container_html": lsb_container_html,
+        "mm_row_count": len(mm_rows),
+        "mm_row_samples": [str(r)[:1000] for r in mm_rows[:2]],
         "response_length": len(html),
     }
 
