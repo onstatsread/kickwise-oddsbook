@@ -119,34 +119,48 @@ def debug_standings(
         return {"fetch_exception": str(e), "url": url}
 
     soup = BeautifulSoup(html, "html.parser")
-    tables = soup.find_all("table")
 
-    table_previews = [str(t)[:2500] for t in tables[:3]]
+    # Search actual visible text for standings column headers (MP/GF/GA/
+    # GD/Pts) rather than guessing class names — these are near-certain
+    # to appear verbatim if a standings table rendered at all.
+    body_text = soup.get_text(" ", strip=True)
+    keyword_hits = {
+        kw: (kw in body_text)
+        for kw in ["MP", "GF", "GA", "GD", "Pts", "PTS", "P W D L"]
+    }
 
-    # Fallback: modern Next.js apps often use div/grid layouts instead
-    # of <table>. Search for any element whose class mentions
-    # "standing" or "table", and separately for team-row-like elements
-    # (reusing the pattern we already confirmed works for fixtures:
-    # elements carrying data-team-id or similar).
-    standing_class_els = soup.find_all(
-        attrs={"class": re.compile(r"standing", re.I)}
+    # Find the smallest element containing "GD" (goal difference is a
+    # distinctive-enough header it's unlikely to appear elsewhere on
+    # the page) and capture its outer context.
+    gd_context = ""
+    gd_el = soup.find(string=re.compile(r"\bGD\b"))
+    if gd_el:
+        container = gd_el.parent
+        for _ in range(4):
+            if container.parent:
+                container = container.parent
+        gd_context = str(container)[:3000]
+
+    # Inventory of distinct class names actually used on the page, so
+    # we can see the real naming convention instead of guessing.
+    all_classes = set()
+    for el in soup.find_all(class_=True):
+        for c in el.get("class", []):
+            all_classes.add(c)
+
+    standings_like_classes = sorted(
+        c for c in all_classes
+        if any(k in c.lower() for k in ["stand", "rank", "table", "row"])
     )
-    team_id_els = soup.find_all(attrs={"data-team-id": True})
-
-    standing_previews = [str(el)[:2000] for el in standing_class_els[:3]]
-    team_row_previews = [str(el)[:1500] for el in team_id_els[:3]]
 
     return {
         "url": url,
         "page_title": page_title,
         "clicked_standings_tab": clicked,
         "click_error": click_error,
-        "table_count": len(tables),
-        "table_previews": table_previews,
-        "standing_class_count": len(standing_class_els),
-        "standing_class_previews": standing_previews,
-        "team_id_element_count": len(team_id_els),
-        "team_row_previews": team_row_previews,
+        "keyword_hits_in_body_text": keyword_hits,
+        "gd_context_html": gd_context,
+        "standings_like_class_names": standings_like_classes[:40],
         "response_length": len(html),
     }
 
