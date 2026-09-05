@@ -91,9 +91,25 @@ def main():
         for u in new_requests:
             print(f"  {u}")
 
-        body_text = page.inner_text("body")
-        print(f"\n--- Full visible body text ({len(body_text)} chars) ---")
-        print(body_text[:8000])
+        # FOUND IT — the real standings data source is a JSON API:
+        #   https://oddsbook.com/bff/league/{league_id}/tab/standings/
+        #       ?sport=football&season={year}&lang=en
+        # Fetch it directly via the same browser context (so it carries
+        # the Cloudflare-clearance cookie/session already established)
+        # and print the raw JSON response.
+        print("\n--- Fetching BFF standings endpoint directly ---")
+        try:
+            bff_url = (
+                "https://oddsbook.com/bff/league/39/tab/standings/"
+                "?sport=football&season=2026&lang=en"
+            )
+            resp = page.request.get(bff_url)
+            print(f"Status: {resp.status}")
+            body = resp.text()
+            print(f"Response length: {len(body)}")
+            print(body[:6000])
+        except Exception as e:
+            print(f"BFF fetch failed: {e}")
 
         html = page.content()
         browser.close()
