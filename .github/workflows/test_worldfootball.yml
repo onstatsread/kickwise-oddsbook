@@ -16,7 +16,9 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: |
+          pip install requests beautifulsoup4 playwright
+          playwright install --with-deps chrome
 
       - name: Run WorldFootball test
         run: python test_worldfootball.py
