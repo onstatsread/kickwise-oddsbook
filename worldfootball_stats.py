@@ -227,10 +227,24 @@ def fetch_all_matches(comp_slug):
     not yet played (skipped here). Team names are found by walking up
     to the smallest containing element with exactly 2 distinct
     /teams/ links.
+
+    NOTE: uses /results-and-standings/, NOT /all-matches/ — despite
+    the site's own nav labeling /all-matches/ as "Fixtures", that page
+    only contains the upcoming schedule (all scores "-:-", no
+    match-report links with real results). The actual played-match
+    results live on the same page as the standings table.
+
+    POSSIBLE LIMITATION (not yet confirmed either way): this page may
+    only show a rolling window of matchdays (recent + upcoming) rather
+    than the full season archive — if so, home/away splits here would
+    be based on recent matches only rather than the complete season,
+    similar in spirit to AnnaBet's own home/away tables but not
+    necessarily identical in sample size. Worth checking once more
+    matchdays have been played.
     """
     from bs4 import BeautifulSoup
 
-    url = f"{WORLDFOOTBALL_BASE}/competition/{comp_slug.strip('/')}/all-matches/"
+    url = f"{WORLDFOOTBALL_BASE}/competition/{comp_slug.strip('/')}/results-and-standings/"
     html = _fetch_page(url)
 
     if not html:
