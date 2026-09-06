@@ -1,0 +1,24 @@
+name: Test WorldFootball Stats
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test_stats:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4 playwright
+          playwright install --with-deps chrome
+
+      - name: Run WorldFootball stats test
+        run: python test_worldfootball_stats.py
