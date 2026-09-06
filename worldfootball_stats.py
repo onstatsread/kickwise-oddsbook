@@ -112,7 +112,7 @@ def fetch_combined_stats(comp_slug):
     """
     from bs4 import BeautifulSoup
 
-    url = f"{WORLDFOOTBALL_BASE}/competition/{comp_slug.strip('/')}/"
+    url = f"{WORLDFOOTBALL_BASE}/competition/{comp_slug.strip('/')}/results-and-standings/"
     html = _fetch_page(url)
 
     if not html:
