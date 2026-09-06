@@ -47,7 +47,9 @@ def main():
                 tables = soup.find_all("table")
                 print(f"  [diagnostic] raw all-matches page: {len(raw_html)} chars, {len(tables)} tables")
                 if tables:
-                    print(f"  [diagnostic] first table preview:\n{str(tables[0])[:2000]}")
+                    print(f"  [diagnostic] table 0 (likely standings) preview:\n{str(tables[0])[:600]}")
+                    if len(tables) > 1:
+                        print(f"\n  [diagnostic] table 1 (likely fixtures) preview:\n{str(tables[1])[:3000]}")
                 else:
                     print(f"  [diagnostic] no tables at all — page snippet:\n{raw_html[2000:4000]}")
             else:
