@@ -45,45 +45,54 @@ _PAGE_CACHE = {}
 PAGE_CACHE_TTL = 1800  # 30 minutes — standings don't change every minute
 
 
-def _fetch_page(url):
+def _fetch_page(url, retries=2):
     """
     Fetches a worldfootball.net page via Playwright + real Chrome
     channel (required — plain requests gets Cloudflare-blocked).
-    Returns raw HTML, or None on failure.
+    Returns raw HTML, or None on failure. Retries once with a short
+    delay if a Cloudflare challenge is hit — firing two fresh browser
+    sessions back-to-back too quickly seems to occasionally trigger
+    one (observed during testing 2026-09-05).
     """
     cached = _PAGE_CACHE.get(url)
     if cached and time.time() - cached[0] < PAGE_CACHE_TTL:
         return cached[1]
 
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(channel="chrome", headless=True)
-            context = browser.new_context(user_agent=USER_AGENT)
-            page = context.new_page()
+    for attempt in range(1, retries + 1):
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(channel="chrome", headless=True)
+                context = browser.new_context(user_agent=USER_AGENT)
+                page = context.new_page()
 
-            page.goto(url, timeout=30000, wait_until="domcontentloaded")
+                page.goto(url, timeout=30000, wait_until="domcontentloaded")
 
-            try:
-                page.wait_for_function(
-                    "document.title !== 'Just a moment...'", timeout=15000
-                )
-            except Exception:
-                pass
+                try:
+                    page.wait_for_function(
+                        "document.title !== 'Just a moment...'", timeout=15000
+                    )
+                except Exception:
+                    pass
 
-            page.wait_for_timeout(1500)
-            html = page.content()
-            browser.close()
+                page.wait_for_timeout(1500)
+                html = page.content()
+                browser.close()
 
-    except Exception as exc:
-        print(f"worldfootball.net fetch failed: {url} -> {exc}")
-        return None
+        except Exception as exc:
+            print(f"worldfootball.net fetch failed (attempt {attempt}): {url} -> {exc}")
+            html = None
 
-    if "Just a moment" in html:
-        print(f"worldfootball.net still Cloudflare-challenged: {url}")
-        return None
+        if html and "Just a moment" not in html:
+            _PAGE_CACHE[url] = (time.time(), html)
+            return html
 
-    _PAGE_CACHE[url] = (time.time(), html)
-    return html
+        if html:
+            print(f"worldfootball.net Cloudflare-challenged (attempt {attempt}): {url}")
+
+        if attempt < retries:
+            time.sleep(3)
+
+    return None
 
 
 def _parse_score(score_text):
@@ -130,12 +139,18 @@ def fetch_combined_stats(comp_slug):
         if len(cells) < 8:
             continue
 
-        # Team name is in a link — prefer the first non-empty team
-        # link text (the full name, not the short abbreviation).
-        team_link = row.find("a", href=re.compile(r"/teams/"))
-        if not team_link:
+        # Each row has TWO /teams/ links: one wrapping just the club
+        # badge <img> (no text), one with the actual team name text.
+        # Picking the first non-empty one gives the full name.
+        team_name = None
+        for link in row.find_all("a", href=re.compile(r"/teams/")):
+            text = link.get_text(strip=True)
+            if text:
+                team_name = text
+                break
+
+        if not team_name:
             continue
-        team_name = team_link.get_text(strip=True)
 
         cell_texts = [c.get_text(strip=True) for c in cells]
 
@@ -192,8 +207,20 @@ def fetch_all_matches(comp_slug):
     # tables and pick rows containing exactly 2 team links + 1 score.
     for table in soup.find_all("table"):
         for row in table.find_all("tr"):
-            team_links = row.find_all("a", href=re.compile(r"/teams/"))
-            if len(team_links) < 2:
+            # Same issue as the standings table: multiple /teams/ links
+            # per team (image-only + name link), and TWO teams per row
+            # (home, away). Collect only links with real text, then
+            # dedupe consecutive duplicates (image link right next to
+            # its own name link would otherwise be fine since image
+            # link is skipped, but the row also repeats each team's
+            # name link twice in worldfootball's markup — e.g. full
+            # name AND short name both link to the same team).
+            named_links = [
+                link for link in row.find_all("a", href=re.compile(r"/teams/"))
+                if link.get_text(strip=True)
+            ]
+
+            if len(named_links) < 2:
                 continue
 
             row_text = row.get_text(" ", strip=True)
@@ -201,8 +228,22 @@ def fetch_all_matches(comp_slug):
             if not score_match:
                 continue
 
-            home = team_links[0].get_text(strip=True)
-            away = team_links[1].get_text(strip=True)
+            # Take the first two DISTINCT team hrefs in the row (full
+            # name + short name both point to the same href, so dedupe
+            # by href to get exactly [home, away]).
+            seen_hrefs = []
+            distinct = []
+            for link in named_links:
+                href = link.get("href")
+                if href not in seen_hrefs:
+                    seen_hrefs.append(href)
+                    distinct.append(link)
+
+            if len(distinct) < 2:
+                continue
+
+            home = distinct[0].get_text(strip=True)
+            away = distinct[1].get_text(strip=True)
             home_score = int(score_match.group(1))
             away_score = int(score_match.group(2))
 
@@ -238,6 +279,8 @@ def fetch_stats_with_splits(comp_slug):
     combined = fetch_combined_stats(comp_slug)
     if not combined:
         return {}
+
+    time.sleep(2)  # brief pause before the second fetch, reduces Cloudflare friction
 
     matches = fetch_all_matches(comp_slug)
 
