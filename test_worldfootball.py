@@ -6,6 +6,7 @@ alternative to Oddsbook's Playwright requirement, if it works.
 
 import requests
 from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
 
 URL = "https://www.worldfootball.net/competition/co91/england-premier-league/"
 
@@ -20,7 +21,7 @@ HEADERS = {
 }
 
 
-def main():
+def try_plain_requests():
     print(f"Fetching {URL} with plain requests (no browser) ...")
 
     resp = requests.get(URL, headers=HEADERS, timeout=20)
@@ -30,16 +31,51 @@ def main():
     is_challenge = "Just a moment" in resp.text or "cf-mitigated" in resp.text.lower()
     print(f"Looks like a Cloudflare challenge: {is_challenge}")
 
-    if resp.status_code != 200:
-        print(f"First 1000 chars: {resp.text[:1000]}")
-        return
+    if resp.status_code == 200 and not is_challenge:
+        return resp.text
 
-    soup = BeautifulSoup(resp.text, "html.parser")
+    print(f"First 500 chars: {resp.text[:500]}")
+    return None
+
+
+def try_playwright():
+    print(f"\n\nFalling back to Playwright + real Chrome channel ...")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(channel="chrome", headless=True)
+        context = browser.new_context(user_agent=HEADERS["User-Agent"])
+        page = context.new_page()
+
+        resp = page.goto(URL, timeout=30000, wait_until="domcontentloaded")
+        print(f"Navigation status: {resp.status if resp else 'unknown'}")
+
+        try:
+            page.wait_for_function(
+                "document.title !== 'Just a moment...'", timeout=15000
+            )
+        except Exception:
+            pass
+
+        page.wait_for_timeout(2000)
+        print(f"Page title: {page.title()}")
+
+        html = page.content()
+        browser.close()
+
+    is_challenge = "Just a moment" in html
+    print(f"Looks like a Cloudflare challenge: {is_challenge}")
+
+    if is_challenge:
+        return None
+
+    return html
+
+
+def analyze_html(html):
+    soup = BeautifulSoup(html, "html.parser")
     tables = soup.find_all("table")
     print(f"\nTotal <table> elements found: {len(tables)}")
 
-    # Find the standings table — look for one whose header row
-    # contains "Pts" (points column).
     standings_table = None
     for t in tables:
         header_text = t.get_text(" ", strip=True)
@@ -49,7 +85,6 @@ def main():
 
     if not standings_table:
         print("Could not find a table containing 'Pts' and 'Diff' headers.")
-        print("Table previews:")
         for i, t in enumerate(tables[:5]):
             print(f"\n--- Table {i} ---")
             print(str(t)[:500])
@@ -63,9 +98,18 @@ def main():
         cells = [c.get_text(strip=True) for c in row.find_all(["td", "th"])]
         print(cells)
 
-    print(f"\nFull first data row HTML:")
-    if len(rows) > 1:
-        print(str(rows[1])[:2000])
+
+def main():
+    html = try_plain_requests()
+
+    if html is None:
+        html = try_playwright()
+
+    if html is None:
+        print("\nBoth methods failed — this site is also Cloudflare-locked against automation.")
+        return
+
+    analyze_html(html)
 
 
 if __name__ == "__main__":
