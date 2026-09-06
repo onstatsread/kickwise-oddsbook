@@ -30,6 +30,14 @@ def main():
                 f"agf={d['agf']:.2f} aga={d['aga']:.2f}"
             )
 
+        # Diagnostic — check fetch_all_matches directly to see if it's
+        # returning anything, and whether names match the standings.
+        from worldfootball_stats import fetch_all_matches
+        matches = fetch_all_matches(slug)
+        print(f"\n  [diagnostic] all-matches found: {len(matches)}")
+        for m in matches[:5]:
+            print(f"    {m}")
+
     print("\n\nDone.")
 
 
