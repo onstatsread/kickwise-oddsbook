@@ -183,13 +183,50 @@ def fetch_combined_stats(comp_slug):
     return result
 
 
+def _find_two_team_container(link, max_levels=6):
+    """
+    Walks up from a match-report link until finding the smallest
+    ancestor containing exactly 2 distinct team links (by href) —
+    stopping at the first match avoids accidentally spanning into
+    neighboring matches in a tightly-packed list.
+    """
+    container = link
+    for _ in range(max_levels):
+        if not container.parent:
+            break
+        container = container.parent
+
+        named = [
+            l for l in container.find_all("a", href=re.compile(r"/teams/"))
+            if l.get_text(strip=True)
+        ]
+
+        seen_hrefs = []
+        distinct = []
+        for l in named:
+            href = l.get("href")
+            if href not in seen_hrefs:
+                seen_hrefs.append(href)
+                distinct.append(l)
+
+        if len(distinct) == 2:
+            return distinct
+
+    return None
+
+
 def fetch_all_matches(comp_slug):
     """
     Returns a list of finished matches:
         [{"home": ..., "away": ..., "home_score": int, "away_score": int}, ...]
 
-    Used to derive home-only/away-only splits, since no pre-built
-    split table was found on worldfootball.net.
+    CONFIRMED (2026-09-05): individual match results are NOT in
+    <table> markup — they're rendered as <a href="/match-report/
+    {comp}/{slug}/ma{id}/{home-slug}_{away-slug}/"> links, where the
+    link's own text IS the score (e.g. "0:2"), or "-:-" for a match
+    not yet played (skipped here). Team names are found by walking up
+    to the smallest containing element with exactly 2 distinct
+    /teams/ links.
     """
     from bs4 import BeautifulSoup
 
@@ -201,58 +238,35 @@ def fetch_all_matches(comp_slug):
 
     soup = BeautifulSoup(html, "html.parser")
     matches = []
+    seen_match_ids = set()
 
-    # Match rows on the all-matches page are typically simple tables
-    # with team links and a score link (format "N:N"). We scan all
-    # tables and pick rows containing exactly 2 team links + 1 score.
-    for table in soup.find_all("table"):
-        for row in table.find_all("tr"):
-            # Same issue as the standings table: multiple /teams/ links
-            # per team (image-only + name link), and TWO teams per row
-            # (home, away). Collect only links with real text, then
-            # dedupe consecutive duplicates (image link right next to
-            # its own name link would otherwise be fine since image
-            # link is skipped, but the row also repeats each team's
-            # name link twice in worldfootball's markup — e.g. full
-            # name AND short name both link to the same team).
-            named_links = [
-                link for link in row.find_all("a", href=re.compile(r"/teams/"))
-                if link.get_text(strip=True)
-            ]
+    for link in soup.find_all("a", href=re.compile(r"/match-report/")):
+        score_text = link.get_text(strip=True)
+        score_match = re.match(r"^(\d+):(\d+)$", score_text)
+        if not score_match:
+            continue  # unplayed ("-:-") or a duplicate icon-only link
 
-            if len(named_links) < 2:
-                continue
+        # Dedupe — each match's score sometimes appears in more than
+        # one link on the page (e.g. a compact + expanded view).
+        match_id = re.search(r"/ma(\d+)/", link["href"])
+        match_id = match_id.group(1) if match_id else link["href"]
+        if match_id in seen_match_ids:
+            continue
 
-            row_text = row.get_text(" ", strip=True)
-            score_match = re.search(r"\b(\d+):(\d+)\b", row_text)
-            if not score_match:
-                continue
+        teams = _find_two_team_container(link)
+        if not teams:
+            continue
 
-            # Take the first two DISTINCT team hrefs in the row (full
-            # name + short name both point to the same href, so dedupe
-            # by href to get exactly [home, away]).
-            seen_hrefs = []
-            distinct = []
-            for link in named_links:
-                href = link.get("href")
-                if href not in seen_hrefs:
-                    seen_hrefs.append(href)
-                    distinct.append(link)
+        home = teams[0].get_text(strip=True)
+        away = teams[1].get_text(strip=True)
 
-            if len(distinct) < 2:
-                continue
-
-            home = distinct[0].get_text(strip=True)
-            away = distinct[1].get_text(strip=True)
-            home_score = int(score_match.group(1))
-            away_score = int(score_match.group(2))
-
-            matches.append({
-                "home": home,
-                "away": away,
-                "home_score": home_score,
-                "away_score": away_score,
-            })
+        matches.append({
+            "home": home,
+            "away": away,
+            "home_score": int(score_match.group(1)),
+            "away_score": int(score_match.group(2)),
+        })
+        seen_match_ids.add(match_id)
 
     return matches
 
