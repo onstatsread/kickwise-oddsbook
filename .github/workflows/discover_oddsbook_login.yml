@@ -1,0 +1,24 @@
+name: Discover Oddsbook Login Form
+
+on:
+  workflow_dispatch:
+
+jobs:
+  discover_login:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install playwright beautifulsoup4
+          playwright install --with-deps chromium
+
+      - name: Run login form discovery
+        run: python discover_oddsbook_login.py
