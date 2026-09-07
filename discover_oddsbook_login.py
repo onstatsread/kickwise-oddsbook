@@ -34,20 +34,37 @@ def main():
         page.wait_for_timeout(2000)
         print(f"Page title: {page.title()}")
 
-        # Find and click "Sign In".
+        # Dump ALL buttons and links with any text, to find the real
+        # sign-in trigger — exact-text "Sign In" search found nothing.
+        html_before = page.content()
+        from bs4 import BeautifulSoup
+        soup_before = BeautifulSoup(html_before, "html.parser")
+
+        print("\n--- All buttons with text ---")
+        for b in soup_before.find_all("button"):
+            text = b.get_text(" ", strip=True)
+            if text:
+                print(f"  button: {text!r} class={b.get('class')} aria-label={b.get('aria-label')!r}")
+
+        print("\n--- All links with text mentioning sign/log/account/user ---")
+        for a in soup_before.find_all("a"):
+            text = a.get_text(" ", strip=True).lower()
+            if any(kw in text for kw in ["sign", "log", "account", "register"]):
+                print(f"  a: text={a.get_text(' ', strip=True)!r} href={a.get('href')!r}")
+
+        print("\n--- All elements with aria-label mentioning sign/log/account ---")
+        for el in soup_before.find_all(attrs={"aria-label": True}):
+            label = el.get("aria-label", "").lower()
+            if any(kw in label for kw in ["sign", "log", "account", "user", "menu"]):
+                print(f"  {el.name}: aria-label={el.get('aria-label')!r}")
+
+        # Try clicking "Sign In" (case-insensitive, partial match).
         try:
-            sign_in = page.get_by_text("Sign In", exact=True).first
+            sign_in = page.get_by_text("Sign In", exact=False).first
             sign_in.click(timeout=8000)
-            print("Clicked 'Sign In'.")
+            print("\nClicked 'Sign In' (partial match).")
         except Exception as e:
-            print(f"Could not click 'Sign In': {e}")
-            # Try alternate text.
-            try:
-                sign_in = page.get_by_role("button", name="Sign In").first
-                sign_in.click(timeout=8000)
-                print("Clicked 'Sign In' (via role=button).")
-            except Exception as e2:
-                print(f"Alternate click also failed: {e2}")
+            print(f"\nCould not click 'Sign In' (partial match): {e}")
 
         page.wait_for_timeout(2500)
         print(f"URL after click: {page.url}")
