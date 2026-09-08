@@ -58,15 +58,36 @@ def main():
             if any(kw in label for kw in ["sign", "log", "account", "user", "menu"]):
                 print(f"  {el.name}: aria-label={el.get('aria-label')!r}")
 
-        # Try clicking the actual login trigger — found via class
-        # "mz-login mz-auth-action" (labeled "Retry" in the DOM, not
-        # literal "Sign In" text).
+        # Try clicking "Profile" — a more typical account-icon trigger
+        # for logged-out users. The earlier "Retry"/mz-login attempt
+        # registered a click but nothing opened, suggesting that
+        # button is a stalled session-check, not the login CTA itself.
         try:
-            login_btn = page.locator("button.mz-login").first
-            login_btn.click(timeout=8000)
-            print("\nClicked button.mz-login.")
+            profile_btn = page.locator("button.mz-bn").first
+            profile_btn.click(timeout=8000)
+            print("\nClicked button.mz-bn (Profile).")
         except Exception as e:
-            print(f"\nCould not click button.mz-login: {e}")
+            print(f"\nCould not click button.mz-bn: {e}")
+
+        page.wait_for_timeout(2500)
+        print(f"URL after Profile click: {page.url}")
+
+        html_after_profile = page.content()
+        from bs4 import BeautifulSoup
+        soup_after_profile = BeautifulSoup(html_after_profile, "html.parser")
+
+        inputs_after_profile = soup_after_profile.find_all("input")
+        print(f"Inputs after Profile click: {len(inputs_after_profile)}")
+        for inp in inputs_after_profile:
+            print(f"  type={inp.get('type')!r} name={inp.get('name')!r} placeholder={inp.get('placeholder')!r}")
+
+        # Dump any NEW buttons that appeared after the Profile click.
+        buttons_after = soup_after_profile.find_all("button")
+        print(f"\nAll buttons after Profile click ({len(buttons_after)}):")
+        for b in buttons_after:
+            text = b.get_text(" ", strip=True)
+            if text and any(kw in text.lower() for kw in ["sign", "log", "email", "password", "register", "continue"]):
+                print(f"  button: {text!r} class={b.get('class')}")
 
         page.wait_for_timeout(2500)
         print(f"URL after click: {page.url}")
