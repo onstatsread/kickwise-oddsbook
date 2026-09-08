@@ -47,9 +47,21 @@ def oddsbook_login(page, email, password):
     page.wait_for_timeout(1000)
 
     try:
-        page.locator('input[name="email"]').first.fill(email, timeout=8000)
-        page.locator('input[name="password"]').first.fill(password, timeout=8000)
-        print("Step 3 OK: filled email + password fields")
+        email_field = page.locator('input[name="email"]').first
+        password_field = page.locator('input[name="password"]').first
+
+        # .fill() can silently leave React-controlled inputs empty
+        # (confirmed 2026-09-08 — no exception raised, but the field
+        # read back as ''). Click to focus + type character-by-character
+        # instead, which properly dispatches the keyboard events React
+        # listens for.
+        email_field.click(timeout=8000)
+        email_field.type(email, delay=50)
+
+        password_field.click(timeout=8000)
+        password_field.type(password, delay=50)
+
+        print("Step 3 OK: filled email + password fields (via click+type)")
     except Exception as e:
         print(f"Step 3 FAILED: filling login form: {e}")
         return False
