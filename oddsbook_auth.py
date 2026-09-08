@@ -46,6 +46,45 @@ def oddsbook_login(page, email, password):
 
     page.wait_for_timeout(1000)
 
+    # Diagnose: how many email/password inputs actually exist, and
+    # which are visible? Three different fill techniques all failed
+    # identically, which strongly suggests we've been targeting the
+    # wrong element among several matches (e.g. a hidden Sign Up
+    # tab's form sitting in the DOM alongside the visible Sign In one).
+    diag = page.evaluate(
+        """() => {
+            const emails = Array.from(document.querySelectorAll('input[name="email"]'));
+            const passwords = Array.from(document.querySelectorAll('input[name="password"]'));
+            function info(el) {
+                const rect = el.getBoundingClientRect();
+                const style = window.getComputedStyle(el);
+                return {
+                    visible: rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden',
+                    rect: {w: rect.width, h: rect.height, top: rect.top, left: rect.left},
+                    display: style.display,
+                    visibility: style.visibility,
+                    opacity: style.opacity,
+                    outerHTML: el.outerHTML.slice(0, 200),
+                };
+            }
+            return {
+                email_count: emails.length,
+                email_info: emails.map(info),
+                password_count: passwords.length,
+                password_info: passwords.map(info),
+            };
+        }"""
+    )
+    print(f"\n--- Input element diagnostic ---")
+    print(f"Email inputs found: {diag['email_count']}")
+    for i, info in enumerate(diag['email_info']):
+        print(f"  [{i}] visible={info['visible']} display={info['display']} rect={info['rect']}")
+        print(f"      html={info['outerHTML']!r}")
+    print(f"Password inputs found: {diag['password_count']}")
+    for i, info in enumerate(diag['password_info']):
+        print(f"  [{i}] visible={info['visible']} display={info['display']} rect={info['rect']}")
+        print(f"      html={info['outerHTML']!r}")
+
     try:
         # Both .fill() and click+type failed silently on these
         # React-controlled inputs (confirmed 2026-09-08 — no exception,
