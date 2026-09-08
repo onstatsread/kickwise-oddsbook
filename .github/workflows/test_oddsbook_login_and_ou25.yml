@@ -1,0 +1,27 @@
+name: Test Oddsbook Login and OU25
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test_login:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install playwright beautifulsoup4
+          playwright install --with-deps chromium
+
+      - name: Run login and OU25 test
+        env:
+          ODDSBOOK_EMAIL: ${{ secrets.ODDSBOOK_EMAIL }}
+          ODDSBOOK_PASSWORD: ${{ secrets.ODDSBOOK_PASSWORD }}
+        run: python test_oddsbook_login_and_ou25.py
