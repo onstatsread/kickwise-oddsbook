@@ -86,39 +86,26 @@ def oddsbook_login(page, email, password):
         print(f"      html={info['outerHTML']!r}")
 
     try:
-        # Both .fill() and click+type failed silently on these
-        # React-controlled inputs (confirmed 2026-09-08 — no exception,
-        # but value read back empty both times). This is the definitive
-        # fix: directly invoke the native HTMLInputElement value setter
-        # via JS and dispatch a real 'input' event, which forces React
-        # to pick up the change regardless of how it intercepts normal
-        # Playwright actions.
-        page.evaluate(
-            """([selector, value]) => {
-                const el = document.querySelector(selector);
-                const setter = Object.getOwnPropertyDescriptor(
-                    window.HTMLInputElement.prototype, 'value'
-                ).set;
-                setter.call(el, value);
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-                el.dispatchEvent(new Event('change', { bubbles: true }));
-            }""",
-            ['input[name="email"]', email],
-        )
-        page.evaluate(
-            """([selector, value]) => {
-                const el = document.querySelector(selector);
-                const setter = Object.getOwnPropertyDescriptor(
-                    window.HTMLInputElement.prototype, 'value'
-                ).set;
-                setter.call(el, value);
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-                el.dispatchEvent(new Event('change', { bubbles: true }));
-            }""",
-            ['input[name="password"]', password],
-        )
+        email_field = page.locator('input[name="email"]').first
+        password_field = page.locator('input[name="password"]').first
 
-        print("Step 3 OK: filled email + password fields (via JS native setter)")
+        email_field.click(timeout=8000)
+        email_field.press_sequentially(email, delay=80)
+
+        immediate_check = page.evaluate(
+            "document.querySelector('input[name=\"email\"]').value"
+        )
+        print(f"  Immediate check right after typing email: {immediate_check!r}")
+
+        password_field.click(timeout=8000)
+        password_field.press_sequentially(password, delay=80)
+
+        immediate_pw_check = page.evaluate(
+            "document.querySelector('input[name=\"password\"]').value.length"
+        )
+        print(f"  Immediate check right after typing password (length): {immediate_pw_check}")
+
+        print("Step 3 OK: filled email + password fields (via press_sequentially)")
     except Exception as e:
         print(f"Step 3 FAILED: filling login form: {e}")
         return False
