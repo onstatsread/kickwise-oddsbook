@@ -47,21 +47,39 @@ def oddsbook_login(page, email, password):
     page.wait_for_timeout(1000)
 
     try:
-        email_field = page.locator('input[name="email"]').first
-        password_field = page.locator('input[name="password"]').first
+        # Both .fill() and click+type failed silently on these
+        # React-controlled inputs (confirmed 2026-09-08 — no exception,
+        # but value read back empty both times). This is the definitive
+        # fix: directly invoke the native HTMLInputElement value setter
+        # via JS and dispatch a real 'input' event, which forces React
+        # to pick up the change regardless of how it intercepts normal
+        # Playwright actions.
+        page.evaluate(
+            """([selector, value]) => {
+                const el = document.querySelector(selector);
+                const setter = Object.getOwnPropertyDescriptor(
+                    window.HTMLInputElement.prototype, 'value'
+                ).set;
+                setter.call(el, value);
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            }""",
+            ['input[name="email"]', email],
+        )
+        page.evaluate(
+            """([selector, value]) => {
+                const el = document.querySelector(selector);
+                const setter = Object.getOwnPropertyDescriptor(
+                    window.HTMLInputElement.prototype, 'value'
+                ).set;
+                setter.call(el, value);
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            }""",
+            ['input[name="password"]', password],
+        )
 
-        # .fill() can silently leave React-controlled inputs empty
-        # (confirmed 2026-09-08 — no exception raised, but the field
-        # read back as ''). Click to focus + type character-by-character
-        # instead, which properly dispatches the keyboard events React
-        # listens for.
-        email_field.click(timeout=8000)
-        email_field.type(email, delay=50)
-
-        password_field.click(timeout=8000)
-        password_field.type(password, delay=50)
-
-        print("Step 3 OK: filled email + password fields (via click+type)")
+        print("Step 3 OK: filled email + password fields (via JS native setter)")
     except Exception as e:
         print(f"Step 3 FAILED: filling login form: {e}")
         return False
