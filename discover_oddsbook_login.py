@@ -58,13 +58,15 @@ def main():
             if any(kw in label for kw in ["sign", "log", "account", "user", "menu"]):
                 print(f"  {el.name}: aria-label={el.get('aria-label')!r}")
 
-        # Try clicking "Sign In" (case-insensitive, partial match).
+        # Try clicking the actual login trigger — found via class
+        # "mz-login mz-auth-action" (labeled "Retry" in the DOM, not
+        # literal "Sign In" text).
         try:
-            sign_in = page.get_by_text("Sign In", exact=False).first
-            sign_in.click(timeout=8000)
-            print("\nClicked 'Sign In' (partial match).")
+            login_btn = page.locator("button.mz-login").first
+            login_btn.click(timeout=8000)
+            print("\nClicked button.mz-login.")
         except Exception as e:
-            print(f"\nCould not click 'Sign In' (partial match): {e}")
+            print(f"\nCould not click button.mz-login: {e}")
 
         page.wait_for_timeout(2500)
         print(f"URL after click: {page.url}")
