@@ -18,7 +18,10 @@ USER_AGENT = (
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(user_agent=USER_AGENT)
+        context = browser.new_context(
+            user_agent=USER_AGENT,
+            viewport={"width": 390, "height": 844},  # mobile viewport — the login button is data-testid="bottomnav-profile-login", CSS-hidden on desktop widths
+        )
         page = context.new_page()
 
         print("Loading homepage...")
@@ -63,11 +66,11 @@ def main():
         # registered a click but nothing opened, suggesting that
         # button is a stalled session-check, not the login CTA itself.
         try:
-            profile_btn = page.locator("button.mz-bn").first
+            profile_btn = page.locator('[data-testid="bottomnav-profile-login"]').first
             profile_btn.click(timeout=8000)
-            print("\nClicked button.mz-bn (Profile).")
+            print("\nClicked bottomnav-profile-login.")
         except Exception as e:
-            print(f"\nCould not click button.mz-bn: {e}")
+            print(f"\nCould not click bottomnav-profile-login: {e}")
 
         page.wait_for_timeout(2500)
         print(f"URL after Profile click: {page.url}")
