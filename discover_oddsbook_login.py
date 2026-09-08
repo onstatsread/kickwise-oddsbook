@@ -72,6 +72,15 @@ def main():
         except Exception as e:
             print(f"\nCould not click bottomnav-profile-login: {e}")
 
+        page.wait_for_timeout(1500)
+
+        try:
+            email_cta = page.locator("button.amv2-email-cta").first
+            email_cta.click(timeout=8000)
+            print("Clicked 'Continue with email'.")
+        except Exception as e:
+            print(f"Could not click 'Continue with email': {e}")
+
         page.wait_for_timeout(2500)
         print(f"URL after Profile click: {page.url}")
 
