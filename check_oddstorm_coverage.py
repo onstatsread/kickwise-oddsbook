@@ -51,7 +51,17 @@ TARGET_LEAGUES = [
 DISQUALIFYING_WORDS = [
     "cup", "reserve", "youth", "friendly", "supercup", "super cup",
     "women", "u21", "u20", "u19", "u23", "u22", "academy", "trophy",
+    "copa", "coppa", "pokal", "coupe", "beker",  # cup in other languages
 ]
+
+# Country name aliases — OddStorm may spell these differently than
+# Kickwise's LEAGUE_CODES naming.
+COUNTRY_ALIASES = {
+    "ireland": "republic of ireland",
+    "taiwan": "chinese taipei",
+    "south korea": "korea republic",
+    "iran": "iran, islamic republic of",
+}
 
 
 def normalize(name):
@@ -107,13 +117,16 @@ def main():
 
         country_part, league_part = target.split(" - ", 1)
         country_norm = normalize(country_part)
+        country_alias = COUNTRY_ALIASES.get(country_norm, country_norm)
 
         country_candidates = [
-            l for l in all_leagues if normalize(l["country"]) == country_norm
+            l for l in all_leagues
+            if normalize(l["country"]) == country_norm
+            or normalize(l["country"]) == country_alias
         ]
 
         if not country_candidates:
-            unmatched.append(f"{target}  (NO COUNTRY MATCH)")
+            unmatched.append(f"{target}  (NO COUNTRY MATCH for {country_part!r})")
             continue
 
         # Strip the trailing "(N)" match count for comparison.
@@ -168,6 +181,16 @@ def main():
     print("=" * 60)
     for t in unmatched:
         print(f"  {t}")
+
+    # Dump every distinct country name OddStorm actually has, so we
+    # can resolve the remaining unmatched ones by eye rather than
+    # guessing aliases blindly.
+    all_countries = sorted(set(l["country"] for l in all_leagues))
+    print(f"\n{'=' * 60}")
+    print(f"ALL {len(all_countries)} DISTINCT COUNTRY NAMES IN ODDSTORM")
+    print("=" * 60)
+    for c in all_countries:
+        print(f"  {c!r}")
 
 
 if __name__ == "__main__":
