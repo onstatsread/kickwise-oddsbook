@@ -1,0 +1,22 @@
+name: Test OddStorm Parser
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test_parser:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run OddStorm parser test
+        run: python test_oddstorm_parser.py
