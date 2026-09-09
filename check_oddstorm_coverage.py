@@ -192,6 +192,37 @@ def main():
     for c in all_countries:
         print(f"  {c!r}")
 
+    # Dump FULL candidate lists for every country in the target list —
+    # several "matched" entries above are actually wrong (e.g. Georgia
+    # matched to tier-3 instead of tier-1, USA MLS matched to the
+    # reserve league) because only 1-2 candidates existed and the
+    # algorithm force-picked one rather than admitting no good option.
+    print(f"\n{'=' * 60}")
+    print("FULL CANDIDATE LIST PER TARGET COUNTRY (verify by eye)")
+    print("=" * 60)
+
+    seen_countries = set()
+    for target in TARGET_LEAGUES:
+        if " - " not in target:
+            continue
+        country_part = target.split(" - ", 1)[0]
+        if country_part in seen_countries:
+            continue
+        seen_countries.add(country_part)
+
+        country_norm = normalize(country_part)
+        country_alias = COUNTRY_ALIASES.get(country_norm, country_norm)
+
+        candidates = [
+            l for l in all_leagues
+            if normalize(l["country"]) == country_norm
+            or normalize(l["country"]) == country_alias
+        ]
+
+        print(f"\n{country_part} ({len(candidates)} leagues found):")
+        for l in candidates:
+            print(f"    {l['league_text']!r} -> {l['href']}")
+
 
 if __name__ == "__main__":
     main()
